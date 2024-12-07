@@ -2,15 +2,10 @@ provider "aws" {
   region = "ap-south-1"
 }
 
-resource "aws_key_pair" "example" {
-  key_name   = "task" # Replace with your desired key name
-  public_key = file("~/.ssh/id_rsa.pub")
-}
-
 resource "aws_instance" "dev" {
-  ami           = "ami-0614680123427b75e" # Ensure this AMI is valid for the region and supports "ec2-user"
+  ami           = "ami-0614680123427b75e" # Ensure this AMI is valid for ap-south-1
   instance_type = "t2.micro"
-  key_name      = aws_key_pair.example.key_name
+  key_name      = "appple" # Pre-existing AWS key pair name
 
   tags = {
     Name = "dev-ec2"
@@ -18,27 +13,24 @@ resource "aws_instance" "dev" {
 
   connection {
     type        = "ssh"
-    user        = "ec2-user" # Username for Amazon Linux
-    private_key = file("~/.ssh/id_rsa") # Path to your private key
+    user        = "ec2-user"
+    private_key = file("appple.pem") # Ensure the file exists locally and is accessible
     host        = self.public_ip
   }
 
   provisioner "file" {
-    source      = "file.sh"               # Path to your local script
-    destination = "/home/ec2-user/file.sh" # Remote path on the instance
+    source      = "file.sh"               # Ensure the file exists in the Terraform directory
+    destination = "/home/ec2-user/file.sh"
   }
 
   provisioner "remote-exec" {
     inline = [
-      "chmod +x /home/ec2-user/file.sh",   # Make the script executable
-      "sudo /home/ec2-user/file.sh",       # Execute the script
-      "sudo systemctl start jenkins",      # Start Jenkins
-      "sudo systemctl status jenkins",     # Check Jenkins status
-      "sudo cat /var/lib/jenkins/secrets/initialAdminPassword" # Retrieve Jenkins password
+      "chmod +x /home/ec2-user/file.sh",
+      "sudo /home/ec2-user/file.sh", # Run the script
+      "sudo cat /var/lib/jenkins/secrets/initialAdminPassword" # Output Jenkins admin password
     ]
   }
 }
-
 
 output "instance_public_ip" {
   value       = aws_instance.dev.public_ip

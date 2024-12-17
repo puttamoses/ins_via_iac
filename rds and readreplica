@@ -1,0 +1,105 @@
+provider "aws" {
+  alias  = "primary"
+  region = "ap-south-1" # Primary Region
+}
+
+provider "aws" {
+  alias  = "replica"
+  region = "us-east-1" # Replica Region
+}
+
+# Variables
+variable "db_username" {
+  default     = "admin"
+  description = "Username for the RDS database"
+}
+
+variable "db_password" {
+  default     = "moses132"
+  description = "Password for the RDS database"
+  sensitive   = true
+}
+
+variable "db_storage" {
+  default     = 20
+  description = "Allocated storage for the database (in GB)"
+}
+
+variable "instance_class" {
+  default     = "db.t3.micro"
+  description = "Instance class for RDS"
+}
+
+variable "database_name" {
+  default     = "my_database"
+  description = "Name of the database to be created"
+}
+
+# Primary RDS Instance
+resource "aws_db_instance" "primary_db" {
+  provider                = aws.primary
+  identifier              = "primary-mysql-instance"
+  allocated_storage       = var.db_storage
+  engine                  = "mysql"
+  engine_version          = "8.0"
+  instance_class          = var.instance_class
+  username                = var.db_username
+  password                = var.db_password
+  parameter_group_name    = "default.mysql8.0"
+  skip_final_snapshot     = true
+  publicly_accessible     = false
+  backup_retention_period = 7
+}
+
+# Cross-Region Read Replica
+resource "aws_db_instance" "read_replica" {
+  provider               = aws.replica
+  identifier             = "mysql-read-replica"
+  replicate_source_db    = aws_db_instance.primary_db.arn
+  instance_class         = var.instance_class
+  publicly_accessible    = false
+  skip_final_snapshot    = true
+}
+
+# Null Resource to Create Database, Table, and Insert Data
+resource "null_resource" "setup_db" {
+  depends_on = [aws_db_instance.primary_db]
+
+  provisioner "local-exec" {
+    command = <<EOT
+      echo "Creating database '${var.database_name}', table, and inserting sample data..."
+      
+      # Create database and table
+      mysql -h ${aws_db_instance.primary_db.endpoint} -u ${var.db_username} -p${var.db_password} -e "
+        CREATE DATABASE IF NOT EXISTS ${var.database_name};
+        CREATE TABLE IF NOT EXISTS ${var.database_name}.users (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          name VARCHAR(100),
+          email VARCHAR(100) UNIQUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      "
+      
+      # Insert sample data
+      mysql -h ${aws_db_instance.primary_db.endpoint} -u ${var.db_username} -p${var.db_password} -e "
+        INSERT INTO ${var.database_name}.users (name, email) VALUES
+        ('Alice', 'alice@example.com'),
+        ('Bob', 'bob@example.com'),
+        ('Charlie', 'charlie@example.com');
+      "
+      
+      echo "Database, table, and sample data setup complete."
+    EOT
+  }
+}
+
+# Outputs
+output "primary_db_endpoint" {
+  description = "Primary RDS Endpoint"
+  value       = aws_db_instance.primary_db.endpoint
+}
+
+output "read_replica_endpoint" {
+  description = "Read Replica Endpoint in us-east-1"
+  value       = aws_db_instance.read_replica.endpoint
+}
